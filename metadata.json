@@ -1,0 +1,9 @@
+{
+  "name": "Footstep Electricity and Smart Ai Saving House",
+  "description": "Science fair project website for 'Smart Energy Saving AI House Powered by Jubileans', featuring footstep electricity and an AI assistant.",
+  "requestFramePermissions": [
+    "geolocation",
+    "microphone"
+  ],
+  "majorCapabilities": []
+}
