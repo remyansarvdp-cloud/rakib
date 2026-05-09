@@ -48,6 +48,7 @@ interface DashboardProps {
   locationStatus: 'loading' | 'active' | 'denied' | 'error';
   onRelocate: () => void;
   currentTheme?: ThemeType;
+  liveQuakes: any[];
 }
 
 export default function Dashboard({ 
@@ -60,7 +61,8 @@ export default function Dashboard({
   locationName,
   locationStatus,
   onRelocate,
-  currentTheme = 'normal'
+  currentTheme = 'normal',
+  liveQuakes
 }: DashboardProps) {
   const isEnglish = language === 'english';
   
@@ -104,10 +106,10 @@ export default function Dashboard({
   };
 
   const deviceData = [
-    { name: isEnglish ? 'Lights' : 'লাইট', value: 30, color: colors.primary },
-    { name: isEnglish ? 'Fans' : 'ফ্যান', value: 45, color: colors.secondary },
-    { name: isEnglish ? 'AI Ops' : 'এআই কাজ', value: 15, color: colors.accent },
-    { name: isEnglish ? 'Misc' : 'অন্যান্য', value: 10, color: '#64748b' },
+    { name: isEnglish ? 'Lights' : 'লাইট', value: 30, color: '#3b82f6' },
+    { name: isEnglish ? 'Fans' : 'ফ্যান', value: 45, color: '#10b981' },
+    { name: isEnglish ? 'AI Ops' : 'এআই কাজ', value: 15, color: '#f59e0b' },
+    { name: isEnglish ? 'Misc' : 'অন্যান্য', value: 10, color: '#ef4444' },
   ];
 
   const stats = [
@@ -121,7 +123,8 @@ export default function Dashboard({
       label: isEnglish ? (currentTheme === 'got' ? 'Vault Level' : currentTheme === 'harry_potter' ? 'Gringotts Storage' : 'Storage Level') : 'স্টোরেজ লেভেল', 
       value: batteryLevel !== null ? `${batteryLevel}%` : '84%', 
       icon: <Battery style={{ color: colors.primary }} />,
-      sub: isEnglish ? 'Optimal health' : 'সঠিক অবস্থা'
+      sub: isEnglish ? 'Optimal health' : 'সঠিক অবস্থা',
+      progress: batteryLevel !== null ? batteryLevel : 84
     },
     { 
       label: isEnglish ? (currentTheme === 'got' ? 'Castle Safety' : currentTheme === 'harry_potter' ? 'Castle Wards' : 'House Safety') : 'বাড়ির নিরাপত্তা', 
@@ -142,7 +145,7 @@ export default function Dashboard({
         </div>
       ),
       sub: (
-        <button onClick={onRelocate} className="hover:underline text-[9px] uppercase font-bold tracking-tighter opacity-70">
+        <button onClick={onRelocate} className={`hover:underline text-[9px] uppercase font-bold tracking-tighter ${currentTheme === 'normal' ? 'text-black' : 'opacity-70'}`}>
           {isEnglish ? 'Update Position' : 'অবস্থান পরিবর্তন'}
         </button>
       )
@@ -175,7 +178,8 @@ export default function Dashboard({
                 currentTheme === 'fc_mobile' ? 'text-slate-500 dark:text-[#00ff85]/60' : 
                 currentTheme === 'blue_lock' ? 'text-[#00f2ff]/60' : 
                 currentTheme === 'solo_leveling' ? 'text-[#00e5ff] font-mono shadow-[0_0_5px_#00e5ff33]' :
-                currentTheme === 'immortal_king' ? 'text-red-900/60 dark:text-[#ffd700]/60' : 'opacity-80'}`}>
+                currentTheme === 'immortal_king' ? 'text-red-900/60 dark:text-[#ffd700]/60' : 
+                currentTheme === 'normal' ? 'text-black' : 'opacity-80'}`}>
                 {currentTheme === 'solo_leveling' 
                   ? (stat.label.includes('Energy') || stat.label.includes('শক্তির') ? 'STRENGTH' : stat.label.includes('Steps') || stat.label.includes('পদক্ষেপ') ? 'AGILITY' : 'PERCEPTION')
                   : stat.label}
@@ -185,13 +189,26 @@ export default function Dashboard({
               currentTheme === 'fc_mobile' ? 'text-[#004a25] dark:text-white' :
               currentTheme === 'blue_lock' ? 'text-white' :
               currentTheme === 'immortal_king' ? 'text-red-900 dark:text-gold' :
-              currentTheme === 'normal' ? 'text-slate-800 dark:text-slate-100' : 'text-white'
+              currentTheme === 'normal' ? 'text-black' : 'text-white'
             }`}>{stat.value}</div>
+            
+            {stat.progress !== undefined && (
+              <div className="h-1.5 w-full bg-slate-100 dark:bg-white/10 rounded-full mt-2 overflow-hidden">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: `${stat.progress}%` }}
+                  transition={{ duration: 1, ease: "easeOut" }}
+                  className="h-full bg-current opacity-80"
+                  style={{ backgroundColor: colors.primary }}
+                />
+              </div>
+            )}
+
             <div className={`text-[11px] mt-1.5 font-medium ${
               currentTheme === 'fc_mobile' ? 'text-slate-500 dark:text-[#00ff85]/60' :
               currentTheme === 'blue_lock' ? 'text-[#00f2ff]/60' :
               currentTheme === 'immortal_king' ? 'text-red-900/60 dark:text-[#ffd700]/60' :
-              currentTheme === 'normal' ? 'text-slate-700 dark:text-slate-300' : 'opacity-70'
+              currentTheme === 'normal' ? 'text-black' : 'opacity-70'
             }`}>{stat.sub}</div>
           </motion.div>
         ))}
@@ -279,7 +296,7 @@ export default function Dashboard({
             currentTheme === 'immortal_king' ? 'bg-white dark:bg-[#2d0a0a] border-2 border-[#8b0000] dark:border-[#ffd700]' :
             'bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md'
           }`}>
-            <h3 className={`font-black text-sm mb-4 uppercase tracking-widest ${currentTheme === 'normal' ? 'text-slate-900 dark:text-slate-100' : 'text-white'}`}>
+            <h3 className={`font-black text-sm mb-4 uppercase tracking-widest ${currentTheme === 'normal' ? 'text-black' : 'text-white'}`}>
               {isEnglish ? 'Resource Usage' : 'সম্পদ বন্টন'}
             </h3>
             <div className="h-44 w-full">
@@ -298,9 +315,31 @@ export default function Dashboard({
               {deviceData.map((item, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span className="text-[10px] font-black uppercase tracking-tighter opacity-80">{item.name}</span>
+                  <span className={`text-[10px] font-black uppercase tracking-tighter ${currentTheme === 'normal' ? 'text-black' : 'opacity-80'}`}>{item.name}</span>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* New Seismic Activity Chart */}
+          <div className={`p-6 transition-all ${
+            currentTheme === 'got' ? 'bg-slate-900 border border-gold/20 rounded-none' :
+            currentTheme === 'solo_leveling' ? 'bg-[#03060a]/90 border border-[#00e5ff]/30' :
+            'bg-white border border-slate-100 rounded-2xl'
+          }`}>
+            <h3 className={`font-black text-sm mb-4 uppercase tracking-widest ${currentTheme === 'normal' ? 'text-black' : 'text-white'}`}>
+              {isEnglish ? 'Seismic Activity' : 'সিসমিক কার্যকলাপ'}
+            </h3>
+            <div className="h-44 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={liveQuakes.slice(0, 5)}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ccc" opacity={0.2} />
+                  <XAxis dataKey="place" tick={{ fontSize: 8 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 8 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ fontSize: '10px' }} />
+                  <Bar dataKey="mag" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </div>
 

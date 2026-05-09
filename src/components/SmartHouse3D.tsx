@@ -9,12 +9,96 @@ import {
   RoundedBox,
   Box,
   Cylinder,
-  Sphere
+  Sphere,
+  Points,
+  PointMaterial
 } from '@react-three/drei';
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bot, Thermometer, User, UserMinus, Shield, Sword, Target, Trophy, Sparkles, Flower } from 'lucide-react';
+import { Bot, Thermometer, User, UserMinus, Shield, Sword, Target, Trophy, Sparkles, Flower, Zap } from 'lucide-react';
 import { Language, ThemeType } from '../types';
+
+function WeatherSystems({ condition }: { condition: string }) {
+  const rainCount = 800;
+  const snowCount = 400;
+  
+  const rainPositions = React.useMemo(() => {
+    const pos = new Float32Array(rainCount * 3);
+    for (let i = 0; i < rainCount; i++) {
+      pos[i * 3] = (Math.random() - 0.5) * 30;
+      pos[i * 3 + 1] = Math.random() * 20;
+      pos[i * 3 + 2] = (Math.random() - 0.5) * 30;
+    }
+    return pos;
+  }, []);
+
+  const snowPositions = React.useMemo(() => {
+    const pos = new Float32Array(snowCount * 3);
+    for (let i = 0; i < snowCount; i++) {
+      pos[i * 3] = (Math.random() - 0.5) * 30;
+      pos[i * 3 + 1] = Math.random() * 20;
+      pos[i * 3 + 2] = (Math.random() - 0.5) * 30;
+    }
+    return pos;
+  }, []);
+
+  const rainRef = useRef<THREE.Points>(null);
+  const snowRef = useRef<THREE.Points>(null);
+
+  useFrame((state, delta) => {
+    if (rainRef.current) {
+      const positions = rainRef.current.geometry.attributes.position.array as Float32Array;
+      for (let i = 0; i < rainCount; i++) {
+        positions[i * 3 + 1] -= delta * 20;
+        if (positions[i * 3 + 1] < -2) positions[i * 3 + 1] = 20;
+      }
+      rainRef.current.geometry.attributes.position.needsUpdate = true;
+    }
+    if (snowRef.current) {
+      const positions = snowRef.current.geometry.attributes.position.array as Float32Array;
+      for (let i = 0; i < snowCount; i++) {
+        positions[i * 3 + 1] -= delta * 3;
+        positions[i * 3] += Math.sin(state.clock.elapsedTime + i) * 0.02;
+        if (positions[i * 3 + 1] < -2) positions[i * 3 + 1] = 20;
+      }
+      snowRef.current.geometry.attributes.position.needsUpdate = true;
+    }
+  });
+
+  const isRainy = condition.toLowerCase().includes('rain') || condition.toLowerCase().includes('drizzle');
+  const isSnowy = condition.toLowerCase().includes('snow');
+
+  return (
+    <group>
+      {isRainy && (
+        <points ref={rainRef}>
+          <bufferGeometry>
+            <bufferAttribute
+              attach="attributes-position"
+              count={rainPositions.length / 3}
+              array={rainPositions}
+              itemSize={3}
+            />
+          </bufferGeometry>
+          <pointsMaterial color="#60a5fa" size={0.08} transparent opacity={0.6} sizeAttenuation />
+        </points>
+      )}
+      {isSnowy && (
+        <points ref={snowRef}>
+          <bufferGeometry>
+            <bufferAttribute
+              attach="attributes-position"
+              count={snowPositions.length / 3}
+              array={snowPositions}
+              itemSize={3}
+            />
+          </bufferGeometry>
+          <pointsMaterial color="white" size={0.12} transparent opacity={0.9} sizeAttenuation />
+        </points>
+      )}
+    </group>
+  );
+}
 
 interface RoomProps {
   position: [number, number, number];
@@ -25,6 +109,7 @@ interface RoomProps {
   isPowerOn: boolean;
   language: Language;
   currentTheme?: ThemeType;
+  onClick?: () => void;
 }
 
 function Door({ position, rotation, isOpen }: { position: [number, number, number]; rotation: [number, number, number]; isOpen: boolean }) {
@@ -60,7 +145,7 @@ function Door({ position, rotation, isOpen }: { position: [number, number, numbe
   );
 }
 
-function Room({ position, size, color, roomName, hasPerson, isPowerOn, language, currentTheme = 'normal' }: RoomProps) {
+function Room({ position, size, color, roomName, hasPerson, isPowerOn, language, currentTheme = 'normal', onClick }: RoomProps) {
   const [lightsActive, setLightsActive] = useState(false);
   const fanRef = useRef<THREE.Group>(null);
 
@@ -94,13 +179,37 @@ function Room({ position, size, color, roomName, hasPerson, isPowerOn, language,
   return (
     <group position={position}>
       {/* Floor */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -size[1]/2, 0]} receiveShadow>
+      <mesh 
+        rotation={[-Math.PI / 2, 0, 0]} 
+        position={[0, -size[1]/2, 0]} 
+        receiveShadow 
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick?.();
+        }}
+        onPointerOver={() => document.body.style.cursor = 'pointer'}
+        onPointerOut={() => document.body.style.cursor = 'default'}
+      >
         <planeGeometry args={[size[0], size[2]]} />
         <meshStandardMaterial 
           color={currentTheme === 'got' ? '#1a1110' : currentTheme === 'harry_potter' ? '#2a1a0a' : roomName.includes("Kitchen") ? "#e2e8f0" : "#94a3b8"} 
           roughness={0.6} 
+          emissive={isPowerOn ? (currentTheme === 'got' ? '#fcd34d' : currentTheme === 'solo_leveling' ? '#00e5ff' : '#3b82f6') : '#000000'}
+          emissiveIntensity={isPowerOn ? (hasPerson ? 0.3 : 0.1) : 0}
         />
       </mesh>
+
+      {/* Occupancy Indicator Ring */}
+      {hasPerson && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -size[1]/2 + 0.01, 0]}>
+          <ringGeometry args={[0.8, 1, 32]} />
+          <meshStandardMaterial 
+            color={currentTheme === 'got' ? '#fcd34d' : currentTheme === 'solo_leveling' ? '#00e5ff' : '#3b82f6'} 
+            transparent 
+            opacity={0.3} 
+          />
+        </mesh>
+      )}
 
       {/* Main Walls (Back) */}
       <mesh position={[0, 0, -size[2] / 2 - 0.001]} receiveShadow>
@@ -207,8 +316,23 @@ function Person({ targetRoom, currentTheme = 'normal' }: { targetRoom: number; c
 
   const colors = getPersonColor();
 
+  const isEnglish = currentTheme === 'fc_mobile' || currentTheme === 'blue_lock' || currentTheme === 'normal'; // Approximation since Person doesn't have language prop
+
   return (
     <group ref={meshRef}>
+      <Html position={[0, 2, 0]} center>
+         <motion.div 
+           initial={{ opacity: 0, scale: 0.8 }}
+           animate={{ opacity: 1, scale: 1 }}
+           className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase whitespace-nowrap shadow-xl border ${
+             currentTheme === 'got' ? 'bg-slate-900 border-gold text-gold' : 
+             currentTheme === 'solo_leveling' ? 'bg-slate-950 border-[#00e5ff] text-[#00e5ff]' :
+             'bg-white border-slate-200 text-slate-800'
+           }`}
+         >
+           {targetRoom === 2 ? 'Out' : 'In Room'}
+         </motion.div>
+      </Html>
       <mesh position={[0, 1.4, 0]} castShadow>
         <sphereGeometry args={[0.22, 16, 16]} />
         <meshStandardMaterial color={colors.top} />
@@ -289,7 +413,85 @@ function AIHub({ weather, currentTheme = 'normal' }: AIHubProps & { currentTheme
   );
 }
 
-export default function SmartHouse3D({ language, weather, currentTheme = 'normal' }: { language: Language; weather: { temp: number; condition: string } | null; currentTheme?: ThemeType }) {
+function EnergyCore({ energy, currentTheme = 'normal' }: { energy: number; currentTheme?: ThemeType }) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const glowRef = useRef<THREE.Mesh>(null);
+  
+  useFrame((state) => {
+    if (meshRef.current) {
+      const scale = 0.8 + energy * 1.5 + Math.sin(state.clock.elapsedTime * 4) * 0.1;
+      meshRef.current.scale.set(scale, scale, scale);
+      meshRef.current.rotation.y += 0.02;
+      meshRef.current.rotation.z += 0.01;
+    }
+    if (glowRef.current) {
+      const glowScale = 1.2 + energy * 2 + Math.sin(state.clock.elapsedTime * 4) * 0.2;
+      glowRef.current.scale.set(glowScale, glowScale, glowScale);
+    }
+  });
+
+  const getColor = () => {
+    switch(currentTheme) {
+      case 'got': return "#fcd34d";
+      case 'harry_potter': return "#eab308";
+      case 'solo_leveling': return "#00e5ff";
+      case 'fc_mobile': return "#00ff85";
+      case 'blue_lock': return "#00f2ff";
+      case 'immortal_king': return "#ffd700";
+      default: return "#3b82f6";
+    }
+  };
+
+  const color = getColor();
+
+  return (
+    <group position={[0, 4, 0]}>
+      {/* Core Sphere */}
+      <mesh ref={meshRef}>
+        <icosahedronGeometry args={[0.3, 1]} />
+        <meshStandardMaterial 
+          color={color} 
+          emissive={color} 
+          emissiveIntensity={2 + energy * 5} 
+          wireframe
+        />
+      </mesh>
+      
+      {/* Outer Glow */}
+      <mesh ref={glowRef}>
+        <sphereGeometry args={[0.4, 32, 32]} />
+        <meshStandardMaterial 
+          color={color} 
+          emissive={color} 
+          emissiveIntensity={1 + energy * 3} 
+          transparent 
+          opacity={0.3} 
+        />
+      </mesh>
+
+      {/* Light Source */}
+      <pointLight 
+        intensity={5 + energy * 20} 
+        distance={10} 
+        color={color} 
+      />
+      
+      {/* Label */}
+      <Html position={[0, 1, 0]} center>
+        <div className={`px-2 py-1 rounded border text-[8px] font-black whitespace-nowrap uppercase tracking-widest flex items-center gap-2 ${
+          currentTheme === 'got' ? 'bg-slate-950 border-gold text-gold' : 
+          currentTheme === 'solo_leveling' ? 'bg-slate-950 border-[#00e5ff] text-[#00e5ff]' :
+          'bg-white border-slate-200 text-slate-800'
+        }`}>
+          <Zap size={8} fill="currentColor" />
+          {Math.round(energy * 100)}% GENERATION
+        </div>
+      </Html>
+    </group>
+  );
+}
+
+export default function SmartHouse3D({ language, weather, energy, currentTheme = 'normal' }: { language: Language; weather: { temp: number; condition: string } | null; energy: number; currentTheme?: ThemeType }) {
   const [currentRoom, setCurrentRoom] = useState(2); // 0: Living, 1: Bedroom, 2: Outside
   const [livingRoomPower, setLivingRoomPower] = useState(false);
   const [bedroomPower, setBedroomPower] = useState(false);
@@ -489,6 +691,7 @@ export default function SmartHouse3D({ language, weather, currentTheme = 'normal
                 isPowerOn={false}
                 language={language}
                 currentTheme={currentTheme}
+                onClick={() => setCurrentRoom(0)}
               />
               {/* Kitchen Table */}
               <group position={[-3, -0.75, -2.5]}>
@@ -512,6 +715,7 @@ export default function SmartHouse3D({ language, weather, currentTheme = 'normal
                 isPowerOn={livingRoomPower}
                 language={language}
                 currentTheme={currentTheme}
+                onClick={() => setCurrentRoom(0)}
               />
               {/* Modern Sofa */}
               <group position={[-4, -0.7, 3]} rotation={[0, Math.PI / 2, 0]}>
@@ -533,6 +737,7 @@ export default function SmartHouse3D({ language, weather, currentTheme = 'normal
                 isPowerOn={bedroomPower}
                 language={language}
                 currentTheme={currentTheme}
+                onClick={() => setCurrentRoom(1)}
               />
               {/* Bed Details */}
               <group position={[3, -0.7, 1.5]}>
@@ -577,11 +782,17 @@ export default function SmartHouse3D({ language, weather, currentTheme = 'normal
                 isOpen={currentRoom === 0} 
               />
               
+              <EnergyCore energy={energy} currentTheme={currentTheme} />
               <AIHub weather={weather} currentTheme={currentTheme} />
+              {weather && <WeatherSystems condition={weather.condition} />}
             </group>
 
             <Person targetRoom={currentRoom} currentTheme={currentTheme} />
           </group>
+
+          {weather && weather.condition.toLowerCase().includes('cloud') && (
+            <fog attach="fog" args={['#94a3b8', 10, 35]} />
+          )}
 
           <ContactShadows 
             position={[0, -2.1, 0]} 

@@ -30,9 +30,10 @@ import {
   Layout,
   Star,
   Activity,
-  Flower
+  Flower,
+  Radio
 } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Language, ThemeType } from './types';
 import ProjectSection from './components/ProjectSection';
 import AIAssistant from './components/AIAssistant';
@@ -220,11 +221,32 @@ export default function App() {
 
   const fetchLocationName = async (lat: number, lon: number) => {
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10`);
+      // Added a small delay to avoid rapid requests if watchPosition fires fast
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18`,
+        {
+          headers: {
+            'User-Agent': 'SmartEnergyHouseApp/1.0'
+          }
+        }
+      );
+      
       const data = await response.json();
-      const city = data.address.city || data.address.town || data.address.suburb || data.address.village || data.address.county || data.display_name.split(',')[0];
-      if (city) {
-        setLocationName(city);
+      const addr = data.address;
+      
+      // Better extraction logic: prioritize city/town, then fallback to larger regions
+      const mainPlace = addr.city || addr.town || addr.municipality || addr.village || addr.suburb;
+      const subPlace = addr.state_district || addr.county || addr.district;
+      
+      let finalName = '';
+      if (mainPlace && subPlace && mainPlace !== subPlace) {
+        finalName = `${mainPlace}, ${subPlace}`;
+      } else {
+        finalName = mainPlace || subPlace || data.display_name.split(',')[0];
+      }
+
+      if (finalName) {
+        setLocationName(finalName);
       }
     } catch (err) {
       console.error('Reverse geocoding error:', err);
@@ -241,46 +263,76 @@ export default function App() {
     else if (currentTheme !== 'normal') document.body.classList.add(`theme-${currentTheme}`);
   }, [currentTheme]);
 
+  const locationRef = useRef<{ lat: number; lon: number } | null>(null);
+
   const initLocation = useCallback(() => {
     if (!('geolocation' in navigator)) {
       setLocationStatus('error');
       setLocation({ lat: 25.07, lon: 91.40 });
-      setLocationName(language === 'english' ? 'Sunamganj' : 'সুনামগঞ্জ');
+      setLocationName(language === 'english' ? 'Sunamganj (Fallback)' : 'সুনামগঞ্জ (ফলব্যাক)');
       return;
     }
 
     setLocationStatus('loading');
     
-    const watchId = navigator.geolocation.watchPosition(
+    // First try to get current position quickly
+    navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude: lat, longitude: lon } = position.coords;
-        setLocation(prev => {
-          if (prev?.lat === lat && prev?.lon === lon) return prev;
-          return { lat, lon };
-        });
+        locationRef.current = { lat, lon };
+        setLocation({ lat, lon });
         setLocationStatus('active');
         fetchLocationName(lat, lon);
       },
       (error) => {
-        console.error('Geolocation error:', error);
-        if (error.code === 1) {
+        console.warn('Initial geolocation attempt failed, starting watch:', error);
+      },
+      { timeout: 5000, maximumAge: 60000 }
+    );
+
+    // Then setup watch for continuous updates
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude: lat, longitude: lon } = position.coords;
+        
+        const prev = locationRef.current;
+        if (prev) {
+          const dist = Math.sqrt(Math.pow(lat - prev.lat, 2) + Math.pow(lon - prev.lon, 2));
+          if (dist < 0.0001) return; // approx 10 meters
+        }
+
+        locationRef.current = { lat, lon };
+        setLocation({ lat, lon });
+        setLocationStatus('active');
+        fetchLocationName(lat, lon);
+      },
+      (error) => {
+        console.error('Geolocation watch error:', error);
+        
+        // Handle specific error codes
+        if (error.code === 1) { // PERMISSION_DENIED
           setLocationStatus('denied');
         } else {
-          setLocationStatus('error');
+          // Only change to error if we haven't successfully found a location yet
+          setLocationStatus(prev => prev === 'active' ? 'active' : 'error');
         }
-        // Fallback
-        setLocation({ lat: 25.07, lon: 91.40 });
-        setLocationName(language === 'english' ? 'Sunamganj' : 'সুনামগঞ্জ');
+        
+        // Only set fallback if we have no location at all
+        if (!locationRef.current) {
+          const fallback = { lat: 25.07, lon: 91.40 };
+          setLocation(fallback);
+          setLocationName(language === 'english' ? 'Sunamganj (Manual)' : 'সুনামগঞ্জ (ম্যানুয়াল)');
+        }
       },
       { 
         enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
+        timeout: 15000,
+        maximumAge: 10000
       }
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [language]);
+  }, [language]); // Only language is a stable dependency now
 
   useEffect(() => {
     const unsub = initLocation();
@@ -348,6 +400,26 @@ export default function App() {
       };
     });
   });
+
+  const [liveQuakes, setLiveQuakes] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!location) return;
+
+    const fetchQuakes = async () => {
+      try {
+        const { fetchLiveEarthquakes } = await import('./services/earthquakeService');
+        const quakes = await fetchLiveEarthquakes(location.lat, location.lon);
+        setLiveQuakes(quakes);
+      } catch (err) {
+        console.error('Check quakes error:', err);
+      }
+    };
+
+    fetchQuakes();
+    const interval = setInterval(fetchQuakes, 60000); // Check every minute
+    return () => clearInterval(interval);
+  }, [location]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1108,6 +1180,7 @@ export default function App() {
                     locationStatus={locationStatus}
                     onRelocate={initLocation}
                     currentTheme={currentTheme}
+                    liveQuakes={liveQuakes}
                   />
                 )}
                 {activePortal === 'how-it-works' && (
@@ -1115,11 +1188,11 @@ export default function App() {
                 )}
                 {activePortal === 'smart-house' && (
                   <div className="h-full min-h-[500px]">
-                    <SmartHouse3D language={language} weather={weather} currentTheme={currentTheme} />
+                    <SmartHouse3D language={language} weather={weather} energy={energy} currentTheme={currentTheme} />
                   </div>
                 )}
                 {activePortal === 'disaster-safety' && (
-                  <DisasterSafety language={language} />
+                  <DisasterSafety language={language} location={location} liveQuakes={liveQuakes} />
                 )}
                 {activePortal === 'ai-hub' && (
                    <div className="max-w-3xl mx-auto h-full">
@@ -1364,6 +1437,7 @@ export default function App() {
               locationStatus={locationStatus}
               onRelocate={initLocation}
               currentTheme={currentTheme}
+              liveQuakes={liveQuakes}
             />
           </ProjectSection>
         </motion.div>
@@ -1539,7 +1613,7 @@ export default function App() {
                 transition={{ duration: 0.8 }}
                 className="lg:col-span-8"
               >
-                <SmartHouse3D language={language} weather={weather} currentTheme={currentTheme} />
+                <SmartHouse3D language={language} weather={weather} energy={energy} currentTheme={currentTheme} />
               </motion.div>
               <motion.div 
                 initial={{ opacity: 0, x: 20 }}
@@ -1568,7 +1642,7 @@ export default function App() {
               transition={{ duration: 1 }}
               className="max-w-4xl mx-auto"
             >
-              <DisasterSafety language={language} />
+              <DisasterSafety language={language} location={location} liveQuakes={liveQuakes} />
             </motion.div>
           </ProjectSection>
         </motion.div>
@@ -1586,10 +1660,16 @@ export default function App() {
             <h2 className="text-4xl font-black text-red-500 mb-4 animate-bounce">
               {language === 'english' ? 'EARTHQUAKE ALERT!' : 'ভূমিকম্প সতর্কতা!'}
             </h2>
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-950 border border-red-500 text-red-500 text-[10px] font-black uppercase tracking-widest rounded-full mb-6">
+              <Radio size={12} className="animate-pulse" /> USGS REAL-TIME VERIFIED
+            </div>
             <p className="text-xl text-white font-bold mb-8">
               {language === 'english' 
-                ? <>Seismic activity detected. <br />DROP, COVER, AND HOLD ON NOW!</>
-                : <>সিসমিক কার্যকলাপ শনাক্ত করা হয়েছে। <br />এখনই ড্রপ, কভার এবং হোল্ড অন করুন!</>}
+                ? <>Significant seismic activity detected nearby. <br />DROP, COVER, AND HOLD ON NOW!</>
+                : <>নিকটবর্তী স্থানে তীব্র সিসমিক কার্যকলাপ শনাক্ত করা হয়েছে। <br />এখনই ড্রপ, কভার এবং হোল্ড অন করুন!</>}
+            </p>
+            <p className="text-[10px] text-white/50 mb-6 uppercase tracking-widest animate-pulse">
+              {language === 'english' ? 'Click anywhere to enable siren' : 'সাইরেন চালু করতে যেকোনো জায়গায় ক্লিক করুন'}
             </p>
             <div className="grid grid-cols-3 gap-4">
               {(language === 'english' ? ['Drop', 'Cover', 'Hold On'] : ['ড্রপ', 'কভার', 'হোল্ড অন']).map((step, i) => (

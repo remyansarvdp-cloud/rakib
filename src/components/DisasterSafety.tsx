@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ShieldAlert, 
@@ -13,12 +13,17 @@ import {
   Stethoscope,
   Radio,
   Backpack,
-  Zap
+  Zap,
+  Activity,
+  History
 } from 'lucide-react';
 import { Language } from '../types';
+import { fetchLiveEarthquakes, Earthquake } from '../services/earthquakeService';
 
 interface DisasterSafetyProps {
   language: Language;
+  location: { lat: number; lon: number } | null;
+  liveQuakes: any[];
 }
 
 interface SafetyProtocol {
@@ -98,21 +103,62 @@ const EMERGENCY_KIT = [
   { en: 'Non-perishable Food', bn: 'শুকনো ও পচনশীল নয় এমন খাবার', icon: <Backpack size={16} /> },
 ];
 
-export default function DisasterSafety({ language }: DisasterSafetyProps) {
+export default function DisasterSafety({ language, location, liveQuakes }: DisasterSafetyProps) {
   const [selectedProtocol, setSelectedProtocol] = useState<string | null>(null);
   const [isPulseActive, setIsPulseActive] = useState(false);
+  const [isMonitoring, setIsMonitoring] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [lastCheck, setLastCheck] = useState<Date>(new Date());
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  
   const isEnglish = language === 'english';
 
-  const triggerEarthquakeTest = () => {
+  useEffect(() => {
+    // Trigger real alert if a significant quake (mag > 4) is within 500km
+    const dangerousQuake = liveQuakes.find(q => q.mag >= 4.0 && (q.distance || Infinity) <= 500);
+    if (dangerousQuake) {
+      triggerEarthquakeAlert(dangerousQuake);
+    }
+  }, [liveQuakes]);
+
+  const triggerEarthquakeAlert = (quake?: Earthquake) => {
     const alertEl = document.getElementById('earthquake-alert');
     if (alertEl) {
       alertEl.classList.remove('hidden');
       document.body.classList.add('animate-shake');
+      
+      // Play siren if requested
+      if (!audioRef.current) {
+        audioRef.current = new Audio('https://www.myinstants.com/media/sounds/emergency-alarm.mp3');
+        audioRef.current.loop = true;
+        audioRef.current.onerror = (e) => console.error('Audio error:', e);
+      }
+      
+      // Attempt to play; if blocked, the sound won't play automatically
+      audioRef.current.play().catch((e) => {
+        console.warn('Audio playback STRICTLY blocked (requires user interaction). Adding click listener to enable:', e);
+        const enableSound = () => {
+          if (audioRef.current) {
+            audioRef.current.play();
+            alertEl.removeEventListener('click', enableSound);
+          }
+        };
+        alertEl.addEventListener('click', enableSound);
+      });
+
       setTimeout(() => {
         alertEl.classList.add('hidden');
         document.body.classList.remove('animate-shake');
-      }, 5000);
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+        }
+      }, 10000); // Alert for 10 seconds
     }
+  };
+
+  const triggerEarthquakeTest = () => {
+    triggerEarthquakeAlert();
   };
 
   const activeProtocol = PROTOCOLS.find(p => p.id === selectedProtocol);
@@ -260,15 +306,56 @@ export default function DisasterSafety({ language }: DisasterSafetyProps) {
               </div>
 
               <div className="space-y-4">
-                <div className="bg-green-50 dark:bg-green-900/20 p-6 rounded-3xl border border-green-100 dark:border-green-900/40">
+                <div className="bg-green-50 dark:bg-green-900/20 p-6 rounded-3xl border border-green-100 dark:border-green-900/40 relative overflow-hidden">
+                  <div className="absolute top-2 right-2 flex items-center gap-1 mt-1">
+                    <span className={`w-1.5 h-1.5 rounded-full ${isFetching ? 'bg-blue-500 animate-spin' : 'bg-green-500 animate-pulse'}`} />
+                    <span className="text-[8px] font-black opacity-40 uppercase tracking-tighter">
+                      {isFetching ? 'SYCING...' : 'LIVE'}
+                    </span>
+                  </div>
                   <h4 className="font-bold text-green-700 dark:text-green-400 flex items-center gap-2 mb-2">
-                    <CheckCircle2 size={18} />
-                    {isEnglish ? 'Ready for Action?' : 'আপনি কি প্রস্তুত?'}
+                    <Activity size={18} className={isFetching ? 'animate-bounce' : ''} />
+                    {isEnglish ? 'Live Seismic Data' : 'সরাসরি সিসমিক তথ্য'}
                   </h4>
-                  <p className="text-xs text-green-600 dark:text-green-300/80 leading-relaxed">
-                    {isEnglish 
-                      ? 'Our AI monitors live weather and seismic data to provide early warnings. Stay connected to get the latest alerts.'
-                      : 'আমাদের এআই প্রাথমিক সতর্কতা প্রদানের জন্য আবহাওয়া এবং ভূমিকম্পের তথ্য পর্যবেক্ষণ করে। সর্বশেষ তথ্য পেতে সংযোগ বজায় রাখুন।'}
+                  <div className="space-y-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
+                    {liveQuakes.length > 0 ? (
+                      liveQuakes.slice(0, 8).map(quake => {
+                        const isVeryRecent = Date.now() - quake.time < 3600000; // Last hour
+                        return (
+                          <div key={quake.id} className={`flex justify-between items-center p-2 rounded-lg text-[10px] border ${
+                            isVeryRecent 
+                              ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' 
+                              : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700'
+                          }`}>
+                            <div className="flex flex-col">
+                              <div className="flex items-center gap-1">
+                                <span className="font-black text-slate-800 dark:text-white">M {quake.mag.toFixed(1)}</span>
+                                {isVeryRecent && (
+                                  <span className="bg-red-500 text-white text-[7px] px-1 rounded animate-pulse">NEW</span>
+                                )}
+                              </div>
+                              <span className="opacity-60 truncate w-32">{quake.place}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="block font-bold text-brand-blue">{Math.round(quake.distance || 0)}km away</span>
+                              <span className="opacity-40">{new Date(quake.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="py-8 flex flex-col items-center justify-center opacity-40">
+                        <Activity size={24} className="animate-pulse mb-2" />
+                        <p className="text-[10px] italic text-center">
+                          {isEnglish ? 'Searching for seismic activity...' : 'সিসমিক কার্যকলাপ অনুসন্ধান করা হচ্ছে...'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[9px] mt-3 opacity-40 font-mono text-center flex items-center justify-center gap-2">
+                    <span>SOURCE: USGS REAL-TIME FEED</span>
+                    <span className="w-1 h-1 bg-slate-400 rounded-full" />
+                    <span>UPDATED: {lastCheck.toLocaleTimeString()}</span>
                   </p>
                 </div>
 
